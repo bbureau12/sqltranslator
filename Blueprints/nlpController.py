@@ -37,37 +37,11 @@ def convert_sql():
     req = request.get_json()
     if not req or 'phrase' not in req:
         return jsonify({"error": "Invalid input"}), 400
+    get_results = req.get('getResults', True)
+    humanize_results = req.get('humanizeResults', False)
 
     phrase = req['phrase']
     
-    result = initialize_result(phrase)
-    result = handle_openai(phrase, result)
+    result = open_ai_service.convert_to_sql(phrase, get_results, humanize_results)
     
     return ResponseHelper.create_payload_response(result)
-
-def initialize_result(phrase):
-    return {
-        "user_request": phrase,
-        "openai_query": None,
-        "openai_error": None,
-        "openai_result": None
-    }
-
-def handle_openai(phrase, result):
-    try:
-        result["openai_query"] = open_ai_service.convert_to_sql(phrase)
-    except Exception as e:
-        result["openai_error"] = f'OpenAI error for "{phrase}": {e}'
-        return result
-
-    if result["openai_query"]:
-        if not result["openai_query"].strip().upper().startswith("SELECT"):
-            result["openai_error"] = f'Unsafe or invalid SQL: {result["openai_query"]}'
-        else:
-            try:
-                openai_result = sql_repository.getSqlResult(result["openai_query"])
-                if openai_result:
-                    result["openai_result"] = openai_result
-            except Exception as e:
-                result["openai_error"] = f'SQL error on OpenAI query "{result["openai_query"]}": {e}'
-    return result

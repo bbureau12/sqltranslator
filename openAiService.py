@@ -1,12 +1,15 @@
 import os
 import time
+import logging
+logging.basicConfig(level=logging.INFO)
 from flask import json
 from openai import OpenAI
 
 from settingsRepository import SettingRepository
 from sqlRepository import SqlRepository
 from synonymRepository import SynonymRepository
-# expansion: have it output in human language (we have 30 customers etc.) 
+
+
 class OpenAiService:
 
     def __init__(self, settingsRepository: SettingRepository, sqlRepository: SqlRepository, synonymRepository: SynonymRepository):
@@ -68,7 +71,7 @@ class OpenAiService:
                 if not sql_query.strip().upper().startswith("SELECT"):
                     raise ValueError(f"Unsafe query returned: {sql_query}")
                 if doGetResults:
-                    return self._summarize_results(sql_query)
+                    return self._summarize_results(sql_query, useNaturalLanguage)
                 return sql_query
         return None    
 
@@ -90,13 +93,22 @@ class OpenAiService:
 
         return assistant.id
 
-    def _getResults(self, sql_query, useNaturalLanguage):
-        if len(sql_query)<1 or not sql_query.toLower().startsWith("select"):
+    def _getResults(self, sql_query, useNaturalLanguage=False):
+        if not isinstance(sql_query, str) or not sql_query.strip().lower().startswith("select"):
+            logging.warning("Unsafe or invalid SQL query: %s", sql_query)
             return sql_query
-        result = self.sqlRepository.getSqlResult(sql_query)
-        if useNaturalLanguage:
-            return self._summarize_results(result)
-        return result
+
+        try:
+            result = self.sqlRepository.getSqlResult(sql_query)
+
+            if useNaturalLanguage:
+                return self._summarize_results(result)
+
+            return result
+
+        except Exception as e:
+            logging.error("Failed to execute query or summarize: %s", e)
+            return {"error": str(e)}
 
     def _summarize_results(self, results):
         if not results:
