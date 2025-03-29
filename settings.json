@@ -1,0 +1,9 @@
+{
+    "settings": [
+        {
+            "name": "dbConn",
+            "value": "users.db"
+        }
+    ],
+    "dbLocation": "users.db"
+}
