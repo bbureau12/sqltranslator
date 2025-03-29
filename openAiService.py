@@ -4,13 +4,15 @@ from openai import OpenAI
 
 from settingsRepository import SettingRepository
 from sqlRepository import SqlRepository
+from synonymRepository import SynonymRepository
 #Points of expansion:
 #B. Substitute commonly used clauses with A and B (example: SELECT * FROM USERS becomes A) to reduce syllable count from Open AI 
 class OpenAiService:
 
-    def __init__(self, settingsRepository: SettingRepository, sqlRepository: SqlRepository):
+    def __init__(self, settingsRepository: SettingRepository, sqlRepository: SqlRepository, synonymRepository: SynonymRepository):
         self.settingRepository = settingsRepository
         self.sqlRepository = sqlRepository
+        self.synonymRepository = synonymRepository
         #note: open ai ID needs to be in environment variables
         self.client = OpenAI()
         self.assistant_id = os.environ.get("OPENAI_ASSISTANT_ID") or self._create_and_cache_assistant()
@@ -38,6 +40,7 @@ class OpenAiService:
         os.environ["OPENAI_ASSISTANT_ID"] = assistant_id
 
         return assistant.id
+
     
     def convert_to_sql(self, phrase):
         SQL_PROMPT_TEMPLATE = """
@@ -50,9 +53,11 @@ class OpenAiService:
         - Replace underscores with spaces.
 
         Query: {query}
+        Synonyms: {synonyms}
         """
         schemas = self.sqlRepository.getSchema()
-        prompt = SQL_PROMPT_TEMPLATE.format(schemas=schemas, query=phrase)
+        synonymMap = self.synonymRepository.getSynonymMap()
+        prompt = SQL_PROMPT_TEMPLATE.format(schemas=schemas, query=phrase, synonyms = synonymMap)
         thread = self.client.beta.threads.create()
         self.client.beta.threads.messages.create(
             thread_id = thread.id,

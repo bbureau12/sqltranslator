@@ -1,95 +1,59 @@
 import sqlite3
+import logging
+logging.basicConfig(level=logging.INFO)
 
 class SynonymRepository:
     def __init__(self, connectionString):
         self.connectionString = connectionString
 
-    def getSynonymsForTable(self, tableName, isPlural):
-        conn = sqlite3.connect(self.connectionString)
-        c = conn.cursor()
-        command = "SELECT synonym FROM Table_Synonyms WHERE table_name = ? and is_plural = ?"
-        c.execute(command, (tableName, isPlural,))
-        
-        rows = c.fetchall()
-        conn.close()
-        if rows is None or len(rows) == 0:
-            return []
-        result = [row[0] for row in rows]
-        
-        return result
-    
-    def getAllTableSynonyms(self):
-        conn = sqlite3.connect(self.connectionString)
-        c = conn.cursor()
-        command = "SELECT * FROM Table_Synonyms"
-        c.execute(command)
-        
-        rows = c.fetchall()
-        conn.close()
-        if rows is None or len(rows) == 0:
-            return []
-        column_names = [desc[0] for desc in c.description]
-        result = [dict(zip(column_names, row)) for row in rows]
-        conn.close()
-        return result
+    def getSynonymMap(self):
+        try:
+            with sqlite3.connect(self.connectionString) as conn:
+                c = conn.cursor()
+                c.execute("""
+                    SELECT 
+                        ts.table_name AS tableName,
+                        ts.synonym AS tableSynonym,
+                        cs.column_name AS columnName,
+                        cs.synonym AS columnSynonym
+                    FROM Table_Synonyms ts
+                    LEFT JOIN Column_Synonyms cs
+                    ON ts.table_name = cs.table_name
+                    ORDER BY ts.table_name
+                """)
+                rows = c.fetchall()
+                if not rows:
+                    return []
 
-    def getAllColumnSynonyms(self, tableName):
-        conn = sqlite3.connect(self.connectionString)
-        c = conn.cursor()
-        command = "SELECT * FROM Column_Synonyms WHERE table_name = ?"
-        c.execute(command, (tableName,))
-        
-        rows = c.fetchall()
-        if rows is None or len(rows) == 0:
-            return []
-        column_names = [desc[0] for desc in c.description]
-        result = [dict(zip(column_names, row)) for row in rows]
-        conn.close()
-        return result
-    
-    def getSynonymsForColumn(self, tableName, columnName):
-        conn = sqlite3.connect(self.connectionString)
-        c = conn.cursor()
-        command = "SELECT synonym FROM Column_Synonyms WHERE table_name = ? AND column_name = ?"
-        c.execute(command, (tableName, columnName,))
-        
-        rows = c.fetchall()
-        conn.close()
-        if rows is None or len(rows) == 0:
-            return []
-        result = [row[0] for row in rows]
-        
-        return result
+                # Build the structured synonym map
+                result = {}
+                for tableName, tableSynonym, columnName, columnSynonym in rows:
+                    if tableName not in result:
+                        result[tableName] = {
+                            "tableName": tableName,
+                            "aliases": set(),
+                            "columns": {}
+                        }
+                    result[tableName]["aliases"].add(tableSynonym)
+                    if columnName:
+                        if columnName not in result[tableName]["columns"]:
+                            result[tableName]["columns"][columnName] = set()
+                        result[tableName]["columns"][columnName].add(columnSynonym)
 
-    def getAllImperatives(self):
-        conn = sqlite3.connect(self.connectionString)
-        c = conn.cursor()
-        command = "SELECT phrase FROM Imperatives"
-        c.execute(command)
-        
-        rows = c.fetchall()
-        conn.close()
-        if rows is None or len(rows) == 0:
-            return []
-        result = [row[0] for row in rows]
-        
-        return result
-    
-    def getExtraneousWords(self):
-        conn = sqlite3.connect(self.connectionString)
-        c = conn.cursor()
-        command = "SELECT word FROM ExtraneousWords"
-        c.execute(command)
-        
-        rows = c.fetchall()
-        conn.close()
-        if rows is None or len(rows) == 0:
-            return []
-        result = [row[0] for row in rows]
-        
-        return result
+                # Convert sets to lists and format columns into list of dicts
+                output = []
+                for table in result.values():
+                    formatted_columns = [
+                        {"columnName": col, "synonym": list(syns)}
+                        for col, syns in table["columns"].items()
+                    ]
+                    output.append({
+                        "tableName": table["tableName"],
+                        "aliases": list(table["aliases"]),
+                        "columns": formatted_columns
+                    })
 
-# Example usage:
-connectionString = "users.db"
-retriever = SynonymRepository(connectionString)
-tableName = "user"
+                return output
+        except sqlite3.Error as e:
+            logging.error("Error building synonym map: %s", e)
+            return {"error": str(e)}
